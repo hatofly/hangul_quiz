@@ -1,2 +1,2 @@
 # hangul_quiz
-ハングルクイズ
+[ハングルクイズ](hangul_quiz.html)
