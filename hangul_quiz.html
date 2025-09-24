@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ハングル発音暗記 - 単語帳UI</title>
+
+  <!-- Tailwind CDN (play CDN for quick demo) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    /* くっきりした輪郭を好むので強めのボーダーやシャドウ */
+    .card-outline {
+      border: 3px solid rgba(55,65,81,1); /* gray-700 */
+      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    }
+    /* 大きな文字のためのフォントサイズ扱い */
+    .huge-char { font-size: clamp(48px, 12vw, 140px); line-height: 1; }
+    .huge-pron { font-size: clamp(18px, 4vw, 36px); }
+    .char-pron { font-size: clamp(14px, 2vw, 20px); }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex items-start justify-center p-6">
+
+  <div class="max-w-5xl w-full grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- 判定フェーズ（左） -->
+    <section id="judge-phase" class="card-outline bg-white rounded-2xl p-6 flex flex-col justify-between">
+      <div>
+        <div class="text-slate-600 mb-3">判定フェーズ</div>
+
+        <div id="judge-card" class="border-2 border-slate-300 rounded-xl p-6 h-56 flex items-center justify-center">
+          <div id="judge-char" class="huge-char font-semibold">?</div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex items-center justify-between gap-4">
+        <div class="text-slate-700">
+          <div>・正答率: <span id="correct-count">0</span>/<span id="total-count">0</span> (<span id="accuracy">0%</span>)</div>
+          <div>・平均回答時間: <span id="avg-time">-</span> s</div>
+        </div>
+
+        <div class="flex gap-3">
+          <button id="next-from-judge" class="px-5 py-3 bg-slate-800 text-white rounded-full shadow hover:opacity-95 focus:outline-none">次へ</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 結果表示フェーズ -->
+    <section id="result-phase" class="card-outline bg-white rounded-2xl p-6 hidden flex-col">
+    <div class="text-slate-600 mb-3">結果表示フェーズ</div>
+
+    <div class="border-2 border-slate-300 rounded-xl p-4 mb-4">
+        <div class="flex items-center gap-4">
+        <div class="flex-1 text-center">
+            <!-- ハングル文字 -->
+            <div id="result-char-symbol" class="huge-char font-semibold">?</div>
+            <!-- 発音（小さめ） -->
+            <div id="result-char-pron" class="char-pron text-slate-600 mt-1">-</div>
+        </div>
+        <div class="text-slate-500 ml-2">
+            <div class="text-sm">解答時間</div>
+            <div id="last-time" class="huge-pron">- s</div>
+        </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="p-3 border-2 border-slate-200 rounded-lg bg-slate-50">
+        <div class="text-slate-500 text-sm mb-2">子音</div>
+        <div id="consonant-char" class="text-3xl font-medium">-</div>
+        <div id="consonant-pron" class="sub-pron mt-1">-</div>
+        </div>
+        <div class="p-3 border-2 border-slate-200 rounded-lg bg-slate-50">
+        <div class="text-slate-500 text-sm mb-2">母音</div>
+        <div id="vowel-char" class="text-3xl font-medium">-</div>
+        <div id="vowel-pron" class="sub-pron mt-1">-</div>
+        </div>
+    </div>
+
+    <div class="mb-4">
+        <div class="text-slate-700">・正答率: <span id="result-accuracy">0%</span></div>
+        <div class="text-slate-700">・平均回答時間: <span id="result-avg-time">-</span> s</div>
+    </div>
+
+    <div class="flex gap-3">
+        <button id="btn-correct" class="flex-1 px-4 py-3 border-2 border-green-500 text-green-700 rounded-lg bg-white hover:bg-green-50 focus:outline-none">⭕️ / 次へ</button>
+        <button id="btn-wrong" class="flex-1 px-4 py-3 border-2 border-red-500 text-red-700 rounded-lg bg-white hover:bg-red-50 focus:outline-none">❌ / 次へ</button>
+    </div>
+    </section>
+
+  </div>
+
+  <script>
+    // UI 要素
+    const judgePhase = document.getElementById('judge-phase');
+    const resultPhase = document.getElementById('result-phase');
+    const judgeChar = document.getElementById('judge-char');
+    const resultCharSymbol = document.getElementById('result-char-symbol');
+    const resultCharPron = document.getElementById('result-char-pron');
+    const vowelChar = document.getElementById('vowel-char');
+    const vowelPron = document.getElementById('vowel-pron');
+    const consChar = document.getElementById('consonant-char');
+    const consPron = document.getElementById('consonant-pron');
+    const nextFromJudgeBtn = document.getElementById('next-from-judge');
+    const btnCorrect = document.getElementById('btn-correct');
+    const btnWrong = document.getElementById('btn-wrong');
+
+    const correctCountEl = document.getElementById('correct-count');
+    const totalCountEl = document.getElementById('total-count');
+    const accuracyEl = document.getElementById('accuracy');
+    const avgTimeEl = document.getElementById('avg-time');
+    const lastTimeEl = document.getElementById('last-time');
+    const resultAccuracyEl = document.getElementById('result-accuracy');
+    const resultAvgTimeEl = document.getElementById('result-avg-time');
+
+    // データ
+    let combination_dict = {};
+    let pronunciation_dict = {};
+
+    // 状態
+    let keys = [];
+    let currentKey = null;
+    let judgeStartTime = null;
+    let lastAnswerTime = null;
+
+    // 統計
+    let totalCount = 0;
+    let correctCount = 0;
+    let avgTime = 0; // 秒 単純平均（逐次更新）
+
+    // JSON を読み込む
+    async function loadData() {
+      try {
+        const res = await fetch('hangul.json');
+        if (!res.ok) throw new Error('hangul.json を読み込めませんでした: ' + res.status);
+        const data = await res.json();
+        combination_dict = data.combination_dict || {};
+        pronunciation_dict = data.pronunciation_dict || {};
+        keys = Object.keys(combination_dict);
+        if (keys.length === 0) {
+          judgeChar.textContent = 'データなし';
+          throw new Error('combination_dict が空です');
+        }
+        startNewJudge();
+      } catch (e) {
+        console.error(e);
+        judgeChar.textContent = 'データ読み込みエラー';
+        alert('hangul.json の読み込みに失敗しました。ブラウザのコンソールも確認してください。\n' + e);
+      }
+    }
+
+    // ランダムに一つ選ぶ（連続で同じ文字が出ないよう簡易実装）
+    function pickRandomKey() {
+      if (keys.length === 0) return null;
+      if (keys.length === 1) return keys[0];
+      let k;
+      do {
+        k = keys[Math.floor(Math.random() * keys.length)];
+      } while (k === currentKey);
+      return k;
+    }
+
+    // 判定フェーズ開始
+    function startNewJudge() {
+      currentKey = pickRandomKey();
+      judgeChar.textContent = currentKey || '?';
+      // 隠す／見せる UI
+      judgePhase.classList.remove('hidden');
+      resultPhase.classList.add('hidden');
+      // タイマー開始
+      judgeStartTime = performance.now();
+    }
+
+    // 判定フェーズから結果表示へ
+    function showResultPhase() {
+      if (!currentKey) return;
+      const now = performance.now();
+      lastAnswerTime = (now - judgeStartTime) / 1000.0; // 秒
+      lastTimeEl.textContent = lastAnswerTime.toFixed(2) + ' s';
+      // 平均更新（逐次平均）
+      totalCount += 1;
+      // 新しい平均: avg = ((avg * (n-1)) + t) / n
+      avgTime = ((avgTime * (totalCount - 1)) + lastAnswerTime) / totalCount;
+      // 表示更新
+      avgTimeEl.textContent = avgTime.toFixed(2);
+      correctCountEl.textContent = correctCount;
+      totalCountEl.textContent = totalCount;
+      accuracyEl.textContent = totalCount === 0 ? '0%' : ((correctCount / totalCount) * 100).toFixed(1) + '%';
+
+      // 結果側の統計も同様に
+      resultAvgTimeEl.textContent = avgTime.toFixed(2);
+      resultAccuracyEl.textContent = totalCount === 0 ? '0%' : ((correctCount / totalCount) * 100).toFixed(1) + '%';
+
+      // 元の子音・母音を取得して発音表示
+      const pair = combination_dict[currentKey];
+      let consonant = '-', vowel = '-';
+      if (Array.isArray(pair) && pair.length >= 2) {
+        consonant = pair[0];
+        vowel = pair[1];
+      } else {
+        // もし combination_dict が異なるフォーマットなら文字列分割などの処理が必要
+        consonant = pair ? String(pair) : '-';
+      }
+
+      resultCharSymbol.textContent = currentKey;
+      vowelChar.textContent = vowel;
+      consChar.textContent = consonant;
+
+      // 発音辞書から対応する発音を表示（無ければ '-'）
+      vowelPron.textContent = pronunciation_dict[vowel] ?? '-';
+      consPron.textContent = pronunciation_dict[consonant] ?? '-';
+      // もし文字自体の発音があるなら上のメインにも付記（図のように C<発音>）
+      const charPron = pronunciation_dict[currentKey];
+      if (charPron) {
+        resultCharSymbol.textContent = currentKey;
+        resultCharPron.textContent = charPron;
+      }
+
+      // 表示切替
+      judgePhase.classList.add('hidden');
+      resultPhase.classList.remove('hidden');
+
+      // 小さなアクセシビリティ: フォーカスを正誤ボタンへ
+      btnCorrect.focus();
+    }
+
+    // ユーザが正誤を入力したあと判定フェーズに戻る
+    function processAnswer(isCorrect) {
+      if (isCorrect) correctCount += 1;
+      // 統計表示更新（左も含め）
+      correctCountEl.textContent = correctCount;
+      totalCountEl.textContent = totalCount;
+      accuracyEl.textContent = totalCount === 0 ? '0%' : ((correctCount / totalCount) * 100).toFixed(1) + '%';
+      resultAccuracyEl.textContent = accuracyEl.textContent;
+      // 次の出題へ（ただし同じキーが連続しないよう pickRandomKey が考慮）
+      startNewJudge();
+    }
+
+    // イベントハンドラ
+    nextFromJudgeBtn.addEventListener('click', showResultPhase);
+    btnCorrect.addEventListener('click', () => processAnswer(true));
+    btnWrong.addEventListener('click', () => processAnswer(false));
+
+    // キーボードショートカット（任意）
+    // Space: 判定->結果（Next）、C: correct、X: wrong
+    window.addEventListener('keydown', (e) => {
+      if (!judgePhase.classList.contains('hidden')) {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          showResultPhase();
+        }
+      } else {
+        if (e.key.toLowerCase() === 'c') btnCorrect.click();
+        if (e.key.toLowerCase() === 'x') btnWrong.click();
+      }
+    });
+
+    // ページロード時にデータ読み込み
+    loadData();
+  </script>
+</body>
+</html>
